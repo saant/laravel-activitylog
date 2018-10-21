@@ -4,8 +4,8 @@ namespace Spatie\Activitylog;
 
 use Illuminate\Auth\AuthManager;
 use Illuminate\Database\Eloquent\Model;
+use Spatie\Activitylog\Models\Activity;
 use Illuminate\Support\Traits\Macroable;
-use Spatie\Activitylog\Contracts\Activity;
 use Illuminate\Contracts\Config\Repository;
 use Spatie\Activitylog\Exceptions\CouldNotLogActivity;
 
@@ -18,11 +18,16 @@ class ActivityLogger
 
     protected $logName = '';
 
+    /** @var bool */
+    protected $logEnabled;
+
     /** @var \Illuminate\Database\Eloquent\Model */
     protected $performedOn;
 
     /** @var \Illuminate\Database\Eloquent\Model */
     protected $causedBy;
+    protected $causedByName = "default";
+    protected $cust_id = 1;
 
     /** @var \Illuminate\Support\Collection */
     protected $properties;
@@ -30,10 +35,7 @@ class ActivityLogger
     /** @var string */
     protected $authDriver;
 
-    /** @var \Spatie\Activitylog\ActivityLogStatus */
-    protected $logStatus;
-
-    public function __construct(AuthManager $auth, Repository $config, ActivityLogStatus $logStatus)
+    public function __construct(AuthManager $auth, Repository $config)
     {
         $this->auth = $auth;
 
@@ -50,15 +52,6 @@ class ActivityLogger
         $this->logName = $config['activitylog']['default_log_name'];
 
         $this->logEnabled = $config['activitylog']['enabled'] ?? true;
-
-        $this->logStatus = $logStatus;
-    }
-
-    public function setLogStatus(ActivityLogStatus $logStatus)
-    {
-        $this->logStatus = $logStatus;
-
-        return $this;
     }
 
     public function performedOn(Model $model)
@@ -73,15 +66,31 @@ class ActivityLogger
         return $this->performedOn($model);
     }
 
+    /**
+     * @param \Illuminate\Database\Eloquent\Model|int|string $modelOrId
+     *
+     * @return $this
+     */
     public function causedBy($modelOrId)
     {
-        if ($modelOrId === null) {
-            return $this;
-        }
-
         $model = $this->normalizeCauser($modelOrId);
 
         $this->causedBy = $model;
+
+        return $this;
+    }
+
+    public function causedByName($name){
+//        $model = $this->normalizeCauser($modelOrId);
+
+        $this->causedByName = $name;
+
+        return $this;
+    }
+    public function customer_for($id){
+//        $model = $this->normalizeCauser($modelOrId);
+
+        $this->cust_id = $id;
 
         return $this;
     }
@@ -91,6 +100,11 @@ class ActivityLogger
         return $this->causedBy($modelOrId);
     }
 
+    /**
+     * @param array|\Illuminate\Support\Collection $properties
+     *
+     * @return $this
+     */
     public function withProperties($properties)
     {
         $this->properties = collect($properties);
@@ -98,6 +112,12 @@ class ActivityLogger
         return $this;
     }
 
+    /**
+     * @param string $key
+     * @param mixed $value
+     *
+     * @return $this
+     */
     public function withProperty(string $key, $value)
     {
         $this->properties->put($key, $value);
@@ -117,23 +137,14 @@ class ActivityLogger
         return $this->useLog($logName);
     }
 
-    public function enableLogging()
-    {
-        $this->logStatus->enable();
-
-        return $this;
-    }
-
-    public function disableLogging()
-    {
-        $this->logStatus->disable();
-
-        return $this;
-    }
-
+    /**
+     * @param string $description
+     *
+     * @return null|mixed
+     */
     public function log(string $description)
     {
-        if ($this->logStatus->disabled()) {
+        if (! $this->logEnabled) {
             return;
         }
 
@@ -153,11 +164,21 @@ class ActivityLogger
 
         $activity->log_name = $this->logName;
 
+        $activity->customer_id = $this->cust_id;
+        $activity->causedByName = $this->causedByName;
+
         $activity->save();
 
         return $activity;
     }
 
+    /**
+     * @param \Illuminate\Database\Eloquent\Model|int|string $modelOrId
+     *
+     * @throws \Spatie\Activitylog\Exceptions\CouldNotLogActivity
+     *
+     * @return \Illuminate\Database\Eloquent\Model
+     */
     protected function normalizeCauser($modelOrId): Model
     {
         if ($modelOrId instanceof Model) {
